@@ -1,7 +1,7 @@
 --------------------------------------
 --drawing constants ------------------
 --------------------------------------
-viewDist = 5
+viewDist = 10
 scale = 8
 inputDisplayOffset = 10
 
@@ -32,7 +32,7 @@ function outputsToController(outputs)
 end
 
 function getMarioLocation()
-	local marioX = memory.readbyte(0x0203)+8
+	local marioX = memory.readbyte(0x0203)+6
 	local marioY = memory.readbyte(0x0204)-3
 	gui.drawPixel(marioX, marioY, 0xFF00FF00)
 	return {['x']=marioX, ['y']=marioY}
@@ -44,13 +44,13 @@ function getSpriteLocations()
 	for i=0x0233, 0x02C3, 0x10 do
 		x = memory.readbyte(i)
 		y = memory.readbyte(i+1)
-		sprites[#sprites+1] = {['x']=x+8, ['y']=y-4}
+		sprites[#sprites+1] = {['x']=x+2, ['y']=y-4}
 	end
 	--fire dudes
 	for i=0x0213, 0x0232, 0x10 do
 		x = memory.readbyte(i)
 		y = memory.readbyte(i+1)
-		sprites[#sprites+1] = {['x']=x+8, ['y']=y-4}
+		sprites[#sprites+1] = {['x']=x+2, ['y']=y-4}
 	end
 	--hammers
 	for i=0x02CB, 0x02DB, 0x08 do
@@ -225,7 +225,7 @@ saveStateFile = "DP1.state"
 numPixels = (viewDist*2+1)*(viewDist*2+1)
 
 numInputs = numPixels+1
-controllerButtons = {"A", "Left", "Right", "Up", "Down", "Wait"}
+controllerButtons = {"A", "Left", "Right", "Up", "Down"}
 numOutputs = #controllerButtons
 
 Population = 300
@@ -412,30 +412,16 @@ function evaluateNetwork(network, inputs)
 			neuron.value = sigmoid(sum)
 		end
 	end
-
+	
 	local outputs = {}
-	--eval jump seperately
-	local button = "P1 " .. controllerButtons[1]
-	if network.neurons[MaxNodes + 1].value > 0 then
-		outputs[button] = true
-	else
-		outputs[button] = false
-	end
-	
-	
-	local maxIndex = 2
-	local maxOutput = network.neurons[MaxNodes+2].value
-	for o=2,numOutputs do
+	for o=1,numOutputs do
 		local button = "P1 " .. controllerButtons[o]
-		outputs[button] = false
-		if network.neurons[MaxNodes+o].value >= maxOutput then
-			maxOutput = network.neurons[MaxNodes+o].value
-			maxIndex = o
+		if network.neurons[MaxNodes+o].value > 0 then
+			outputs[button] = true
+		else
+			outputs[button] = false
 		end
 	end
-
-	local button = "P1 " .. controllerButtons[maxIndex]
-	outputs[button] = true
 	
 	return outputs
 end
@@ -913,6 +899,7 @@ function initializeRun()
 	local genome = species.genomes[pool.currentGenome]
 	generateNetwork(genome)
 	evaluateCurrent()
+	print("I did it mom!")
 end
 
 function evaluateCurrent()
@@ -921,16 +908,15 @@ function evaluateCurrent()
 
 	inputs = getInputs()
 	controller = evaluateNetwork(genome.network, inputs)
-	table.remove(controller)
 	
-	--if controller["P1 Left"] and controller["P1 Right"] then
-	--	controller["P1 Left"] = false
-	--	controller["P1 Right"] = false
-	--end
-	--if controller["P1 Up"] and controller["P1 Down"] then
-	--	controller["P1 Up"] = false
-	--	controller["P1 Down"] = false
-	--end
+	if controller["P1 Left"] and controller["P1 Right"] then
+		controller["P1 Left"] = false
+		controller["P1 Right"] = false
+	end
+	if controller["P1 Up"] and controller["P1 Down"] then
+		controller["P1 Up"] = false
+		controller["P1 Down"] = false
+	end
 
 	joypad.set(controller)
 end
@@ -980,45 +966,19 @@ function displayGenome(genome)
 	biasCell.value = network.neurons[numInputs].value
 	cells[numInputs] = biasCell
 	
-	--eval jump seperate
-	cell = {}
-	cell.x = 220
-	cell.y = 30 + 8 * 1
-	local color
-	if network.neurons[MaxNodes + 1].value > 0 then
-		cell.value = 1
-		color = 0xFF0000FF
-	else
-		cell.value = -1
-		color = 0xFF808080
-	end
-	cells[MaxNodes+1] = cell
-	gui.drawText(223, 24+8*1, controllerButtons[1], color, 4)
-
-	--added
-	local maxIndex = 2
-	local maxOutput = network.neurons[MaxNodes+2].value
-	for o=2,numOutputs do
-		if network.neurons[MaxNodes+o].value >= maxOutput then
-			maxOutput = network.neurons[MaxNodes+o].value
-			maxIndex = o
-		end
-	end
-
-	for o = 2,numOutputs do
+	for o = 1,numOutputs do
 		cell = {}
 		cell.x = 220
 		cell.y = 30 + 8 * o
+		cell.value = network.neurons[MaxNodes + o].value
+		cells[MaxNodes+o] = cell
 		local color
-		if o == maxIndex then
-			cell.value = 1
+		if cell.value > 0 then
 			color = 0xFF0000FF
 		else
-			cell.value = -1
-			color = 0xFF808080
+			color = 0xFF000000
 		end
-		cells[MaxNodes+o] = cell
-		gui.drawText(223, 24+8*o, controllerButtons[o], color, 2)
+		gui.drawText(223, 24+8*o, controllerButtons[o], color, 9)
 	end
 	
 	for n,neuron in pairs(network.neurons) do
@@ -1112,17 +1072,6 @@ function displayGenome(genome)
 	end
 end
 
-function isValidFitness()
-
-	local marioX = getMarioLocation()['x']
-	local isJumping = memory.readbyte(0x96) == 0x04
-	local isDead = isDead()
-	local isOnBadLadder = marioX == 84 or marioX == 100 or marioX == 108 or marioX == 188
-	--local isTooOutside = marioX <= 27 or marioX >= 223
-
-	return not isJumping and not isDead and not isOnBadLadder
-end
-
 --************************************
 --**---main state execution --------**
 --************************************
@@ -1171,22 +1120,17 @@ while true do
 	joypad.set(controller)
 
 	marioLoc = getMarioLocation()
-	if (255-marioLoc['y']-51)*10 > uppermost and isValidFitness() then
+	isJumping = memory.readbyte(0x96) == 0x04 or memory.readbyte(0x96) == 0xFF
+	if (255-marioLoc['y']-51)*10 > uppermost and not isJumping then
 		uppermost = (255-marioLoc['y']-51)*10
 		timeout = TimeoutConstant
 	end
 	
 	timeout = timeout - 1
-
-	--too far off screen
-	local punishment = 0
-	if marioLoc['x'] <= 35 or marioLoc['x'] >= 215 then
-		punishment = 20
-	end
 	
 	local timeoutBonus = pool.currentFrame / 4
 	if timeout + timeoutBonus <= 0 or isDead() then
-		local fitness = uppermost - pool.currentFrame / 150.0 - punishment
+		local fitness = uppermost - pool.currentFrame / 150.0
 		if gameinfo.getromname() == "Super Mario World (USA)" and uppermost > 4816 then
 			fitness = fitness + 1000
 		end
@@ -1220,11 +1164,9 @@ while true do
 			end
 		end
 	end
-
-
 	if not forms.ischecked(hideBanner) then
 		gui.drawText(0, 10, "Gen " .. pool.generation .. " species " .. pool.currentSpecies .. " genome " .. pool.currentGenome .. " (" .. math.floor(measured/total*100) .. "%)", 0xFF000000, 11)
-		gui.drawText(0, 22, "Fitness: " .. math.floor(uppermost - (pool.currentFrame) / 150.0 - punishment), 0xFF000000, 11)
+		gui.drawText(0, 22, "Fitness: " .. math.floor(uppermost - (pool.currentFrame) / 150.0 - (timeout + timeoutBonus)*0/45), 0xFF000000, 11)
 		gui.drawText(100, 22, "Max Fitness: " .. math.floor(pool.maxFitness), 0xFF000000, 11)
 	end
 		
@@ -1259,23 +1201,3 @@ while true do
 	
 	nextFrame()
 end
-
-
-
-local cnt = 0
-savestate.load(saveStateFile);
-while true do
-	mario = getMarioLocation()
-
-		gui.drawText(20, 70, "X:" .. mario['x'] .. " Y:".. mario['y'], 0xFFFFFFFF, 9)
-		gui.drawLine(mario['x'], 0, mario['x'], 255, 0xFF00FF00)
-
-	if isDead() then
-		savestate.load(saveStateFile);
-	end
-
-	cnt = cnt + 1
-	emu.frameadvance()
-end
-
---
